@@ -4,7 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>주진명의 데일리 브리핑</title>
-  <meta name="description" content="삼성생명 주진명 컨설턴트의 보험·금융 뉴스 앱" />
   <meta name="theme-color" content="#001F5C" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -14,6 +13,9 @@
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100%; background: #EBF2FC; font-family: 'Noto Sans KR', sans-serif; }
@@ -23,6 +25,7 @@
     @keyframes pulse   { 0%,100%{opacity:1} 50%{opacity:.35} }
     @keyframes spin    { to{transform:rotate(360deg)} }
     @keyframes barGrow { from{width:0} }
+    @keyframes shake   { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-8px)} 40%{transform:translateX(8px)} 60%{transform:translateX(-6px)} 80%{transform:translateX(6px)} }
     ::-webkit-scrollbar { width:0; height:0; }
     a, button { -webkit-tap-highlight-color: transparent; font-family: 'Noto Sans KR', sans-serif; }
     input:focus, textarea:focus, select:focus { border-color: #004A96 !important; box-shadow: 0 0 0 3px rgba(0,74,150,0.12); outline: none; }
@@ -30,208 +33,42 @@
 </head>
 <body>
 <div id="root"></div>
+<script>
+  // Firebase 초기화
+  const firebaseConfig = {
+    apiKey: "AIzaSyC8O5XOsvlsmcC5arW1WQ_8zf_zc6gByVE",
+    authDomain: "jjm-news-1.firebaseapp.com",
+    projectId: "jjm-news-1",
+    storageBucket: "jjm-news-1.firebasestorage.app",
+    messagingSenderId: "640510663414",
+    appId: "1:640510663414:web:293e4cf0a7808ae8b7aad7"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.firestore();
+</script>
 <script type="text/babel">
   const { useState, useEffect, useCallback } = React;
 
-  // ── RSS 피드 설정 (무료, API 키 불필요) ──────────────
-  const CATEGORIES = [
-    {
-      id: "all", label: "전체", icon: "◈",
-      feeds: [
-        "https://www.hankyung.com/feed/finance",
-        "https://www.yna.co.kr/rss/economy.xml",
-      ]
-    },
-    {
-      id: "life", label: "생명보험", icon: "♡",
-      feeds: ["https://www.hankyung.com/feed/finance"],
-      keyword: "보험"
-    },
-    {
-      id: "nonlife", label: "손해보험", icon: "◇",
-      feeds: ["https://www.hankyung.com/feed/finance"],
-      keyword: "손해보험"
-    },
-    {
-      id: "invest", label: "투자·펀드", icon: "△",
-      feeds: [
-        "https://www.hankyung.com/feed/investment",
-        "https://www.mk.co.kr/rss/30000001/",
-      ]
-    },
-    {
-      id: "policy", label: "금융정책", icon: "□",
-      feeds: ["https://www.yna.co.kr/rss/economy.xml"],
-      keyword: "금융"
-    },
-    {
-      id: "pension", label: "연금·노후", icon: "☾",
-      feeds: ["https://www.hankyung.com/feed/finance"],
-      keyword: "연금"
-    },
-  ];
+  // ── 상수 ─────────────────────────────────────────────
+  const CONSULTANT_PHONE = "010-7513-9854";
+  const CONSULTANT_KAKAO = "https://open.kakao.com/o/sEGyTGti";
+  const ADMIN_PW = "1357"; // 관리자 비밀번호
 
-  const CAT_COLORS = {
-    all:"#004A96", life:"#C8000A", nonlife:"#E8A000",
-    invest:"#007A5E", policy:"#6A0DAD", pension:"#005999",
+  const CATEGORIES = [
+    { id:"all",     label:"전체",     icon:"◈", feeds:["https://www.hankyung.com/feed/finance","https://www.yna.co.kr/rss/economy.xml"] },
+    { id:"life",    label:"생명보험",  icon:"♡", feeds:["https://www.hankyung.com/feed/finance"], keyword:"보험" },
+    { id:"nonlife", label:"손해보험",  icon:"◇", feeds:["https://www.hankyung.com/feed/finance"], keyword:"손해보험" },
+    { id:"invest",  label:"투자·펀드", icon:"△", feeds:["https://www.hankyung.com/feed/investment","https://www.mk.co.kr/rss/30000001/"] },
+    { id:"policy",  label:"금융정책",  icon:"□", feeds:["https://www.yna.co.kr/rss/economy.xml"], keyword:"금융" },
+    { id:"pension", label:"연금·노후", icon:"☾", feeds:["https://www.hankyung.com/feed/finance"], keyword:"연금" },
+  ];
+  const CAT_COLORS = { all:"#004A96", life:"#C8000A", nonlife:"#E8A000", invest:"#007A5E", policy:"#6A0DAD", pension:"#005999" };
+  const importanceCfg = {
+    high:   { bg:"#C8000A", label:"🔥 HOT",  ribbon:"#FFF0F0" },
+    medium: { bg:"#004A96", label:"📌 주목",  ribbon:"#EAF1FC" },
+    low:    { bg:"#5C7A9B", label:"📄 일반",  ribbon:"#F2F6FB" },
   };
 
-  const DEFAULT_INSIGHTS = [
-    { id:1, category:"생명보험",  text:"보험료 납입 중인 고객님께 갱신 주기 안내 필요", active:true },
-    { id:2, category:"연금·노후", text:"노후 준비 부족 고객 대상 연금보험 리뷰 권장", active:true },
-    { id:3, category:"투자·펀드", text:"금리 변동 시 저축성 보험 수익률 재점검 권고", active:true },
-    { id:4, category:"금융정책",  text:"정책 변화에 따른 보험 포트폴리오 점검 제안", active:false },
-  ];
-
-  const SAMPLE_CLIENTS = [
-    { id:1, name:"김영희", phone:"010-1234-5678", interest:"life",    memo:"종신보험 갱신 예정 (2026.08)", lastContact:"2026-04-15" },
-    { id:2, name:"박철수", phone:"010-9876-5432", interest:"pension", memo:"연금보험 추가 납입 문의",       lastContact:"2026-04-28" },
-    { id:3, name:"이수진", phone:"010-5555-1234", interest:"invest",  memo:"변액보험 수익률 관심 높음",     lastContact:"2026-05-01" },
-    { id:4, name:"최민준", phone:"010-3333-7777", interest:"nonlife", memo:"자동차보험 만기 2026.06",       lastContact:"2026-04-10" },
-    { id:5, name:"정다은", phone:"010-2222-8888", interest:"life",    memo:"실손의료보험 청구 도움 요청",   lastContact:"2026-05-03" },
-  ];
-
-  // ══════════════════════════════════════════════════
-  // ✅ 여기만 수정하세요! (GitHub에서 이 두 줄만 바꾸면 전체 반영)
-  // ══════════════════════════════════════════════════
-  const CONSULTANT_PHONE   = "010-7513-9854";                      // ← 전화번호
-  const CONSULTANT_KAKAO   = "https://open.kakao.com/o/sEGyTGti";  // ← 카카오 링크
-  // ══════════════════════════════════════════════════
-
-  // localStorage (고객목록·멘트 저장용)
-  function lsGet(key, def) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch { return def; } }
-  function lsSet(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }
-  async function fetchRssNews(category) {
-    const PROXY = "https://api.rss2json.com/v1/api.json?rss_url=";
-    const cat = CATEGORIES.find(c => c.id === category);
-    if (!cat) return [];
-
-    let articles = [];
-
-    for (const feedUrl of cat.feeds) {
-      try {
-        const res = await fetch(`${PROXY}${encodeURIComponent(feedUrl)}&count=10`);
-        const data = await res.json();
-        if (data.status === "ok" && data.items) {
-          articles = [...articles, ...data.items];
-        }
-      } catch(e) { /* 개별 피드 실패 무시 */ }
-    }
-
-    // 키워드 필터링
-    if (cat.keyword) {
-      const kw = cat.keyword;
-      const filtered = articles.filter(a =>
-        (a.title || "").includes(kw) || (a.description || "").includes(kw)
-      );
-      if (filtered.length >= 2) articles = filtered;
-    }
-
-    // 중복 제거 + 최신순 정렬
-    const seen = new Set();
-    articles = articles.filter(a => {
-      if (seen.has(a.title)) return false;
-      seen.add(a.title);
-      return true;
-    });
-
-    articles.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate));
-
-    // 상위 4개 반환
-    return articles.slice(0, 4).map((item, i) => {
-      const rawSummary = stripHtml(item.description || item.content || "").slice(0, 200);
-      return {
-        hook_title: makeHookTitle(item.title, i),
-        real_title: item.title || "제목 없음",
-        summary: rawSummary,
-        source: item.author || new URL(item.link || "https://news.naver.com").hostname.replace("www.",""),
-        link: item.link || "#",
-        pubDate: item.pubDate,
-        importance: i === 0 ? "high" : i === 1 ? "medium" : "low",
-        insight: getInsight(item.title || "", rawSummary),
-      };
-    });
-  }
-
-  // 재미있는 제목 변환
-  const HOOKS = [
-    ["금리", "💸 금리 또 움직인다! 내 보험 이자는?"],
-    ["보험료", "😱 보험료 변동?! 지금 바로 확인해봐"],
-    ["연금", "🔥 연금 안 챙기면 노후에 후회한다!"],
-    ["주식", "📈 주식 시장 요동... 내 변액보험 괜찮을까?"],
-    ["금융", "🏦 금융판 대격변! 우리 고객은 어떻게?"],
-    ["보험", "🤔 이 보험 뉴스, 나한테 무슨 영향이지?"],
-    ["세금", "💰 세금 또 바뀐다고?! 보험으로 절세 가능"],
-    ["부동산", "🏠 부동산 요동... 대출·보험 재점검 필요"],
-  ];
-
-  function makeHookTitle(title, index) {
-    if (!title) return "📰 오늘의 주요 금융 소식";
-    for (const [keyword, hook] of HOOKS) {
-      if (title.includes(keyword)) return hook;
-    }
-    const emojis = ["📌", "💡", "🔔", "⚡"];
-    return `${emojis[index % emojis.length]} ${title.slice(0, 28)}...`;
-  }
-
-  function getInsight(title, summary) {
-    const text = (title + " " + summary).toLowerCase();
-
-    // 금리 관련
-    if (text.includes("금리") && text.includes("인상")) return "금리 인상 시 변동금리 대출 보험료 부담 증가 → 고정금리 전환 또는 보장성 보험 재검토 필요";
-    if (text.includes("금리") && text.includes("인하")) return "금리 인하 시 저축성·연금보험 수익률 하락 가능 → 현재 계약 이율 확인 후 포트폴리오 재조정 권고";
-    if (text.includes("금리")) return "금리 변동은 저축보험·연금 수익률에 직접 영향 → 지금 계약 조건 점검이 필요한 시점";
-
-    // 보험료 관련
-    if (text.includes("보험료") && text.includes("인상")) return "실손·자동차 보험료 인상 예고 → 갱신 전 다이렉트 비교 또는 특약 조정으로 절감 가능";
-    if (text.includes("보험료")) return "보험료 변동 전 현재 계약의 보장 내용과 납입 조건 재확인 권장";
-
-    // 연금 관련
-    if (text.includes("연금") && text.includes("개혁")) return "연금 개혁은 공적 연금 수령액 감소 가능성 → 개인연금·퇴직연금으로 노후 보완 전략 수립 시급";
-    if (text.includes("연금") && text.includes("수령")) return "연금 수령 시기 선택이 총 수령액에 큰 영향 → 개인 상황에 맞는 최적 수령 시점 시뮬레이션 필요";
-    if (text.includes("연금")) return "공적 연금만으론 노후 부족 → 개인연금 추가 납입 또는 종신연금 전환 검토 권장";
-
-    // 실손 관련
-    if (text.includes("실손")) return "실손보험 청구·갱신 구조 변화 → 현재 가입된 세대 확인 후 4세대 전환 여부 상담 필요";
-
-    // 세금·절세
-    if (text.includes("세금") || text.includes("절세") || text.includes("과세")) return "세제 변화 시 연금저축·IRP 세액공제 한도 활용이 절세 핵심 → 연말 전 납입 전략 점검 권장";
-
-    // 주식·펀드·투자
-    if (text.includes("주식") || text.includes("코스피") || text.includes("증시")) return "증시 변동성 확대 → 변액보험 펀드 비중 점검 및 안전자산 재배분 고려 필요";
-    if (text.includes("펀드")) return "펀드 수익률 변동 → 변액보험 특별계정 운용 현황 점검 및 펀드 변경 검토";
-
-    // 부동산
-    if (text.includes("부동산") || text.includes("아파트")) return "부동산 가격 변동은 화재·재물보험 보장 금액 재설정 필요 → 현재 계약 보장 한도 확인 권장";
-
-    // 고령화·노후
-    if (text.includes("고령") || text.includes("노후") || text.includes("은퇴")) return "고령화 시대 의료비·생활비 급증 → 종신보험·간병보험 추가 검토 및 은퇴 설계 상담 권장";
-
-    // 암·질병
-    if (text.includes("암") || text.includes("질병") || text.includes("의료")) return "의료비 부담 증가 → 현재 실손·암보험 보장 범위 점검 및 부족한 보장 추가 가입 검토";
-
-    // 경제 일반
-    if (text.includes("물가") || text.includes("인플레")) return "물가 상승은 보험금 실질 가치 하락으로 이어짐 → 보장금액 상향 조정 또는 물가연동형 보험 검토 필요";
-
-    // 기업·취업
-    if (text.includes("퇴직") || text.includes("실업")) return "소득 단절 리스크 대비 → 소득보상보험 또는 퇴직금 연금 전환 전략 상담 권장";
-
-    return "이 뉴스와 내 보험의 연관성, 설계사와 함께 점검해보세요";
-  }
-
-  function stripHtml(html) {
-    return html.replace(/<[^>]*>/g, "").replace(/&[^;]+;/g, " ").replace(/\s+/g, " ").trim();
-  }
-
-  function timeAgo(dateStr) {
-    if (!dateStr) return "";
-    const diff = (new Date() - new Date(dateStr)) / 1000 / 60;
-    if (diff < 60) return `${Math.floor(diff)}분 전`;
-    if (diff < 1440) return `${Math.floor(diff/60)}시간 전`;
-    return `${Math.floor(diff/1440)}일 전`;
-  }
-
-  // ── 스타일 ────────────────────────────────────────────
   const S = {
     card: { background:"#fff", borderRadius:18, border:"1.5px solid #D8E6F4", boxShadow:"0 2px 10px rgba(0,74,150,0.06)", overflow:"hidden" },
     badge: (bg) => ({ background:bg, color:"#fff", fontSize:11, fontWeight:800, padding:"3px 10px", borderRadius:20, display:"inline-block" }),
@@ -239,111 +76,260 @@
     btn: (p) => ({ padding:"10px 18px", borderRadius:10, fontSize:13, fontWeight:800, cursor:"pointer", border:"none", background:p?"#004A96":"#EBF2FC", color:p?"#fff":"#004A96" }),
   };
 
-  const importanceCfg = {
-    high:   { bg:"#C8000A", label:"🔥 HOT",  ribbon:"#FFF0F0" },
-    medium: { bg:"#004A96", label:"📌 주목",  ribbon:"#EAF1FC" },
-    low:    { bg:"#5C7A9B", label:"📄 일반",  ribbon:"#F2F6FB" },
-  };
+  // ── RSS 뉴스 ─────────────────────────────────────────
+  function stripHtml(html) { return html.replace(/<[^>]*>/g,"").replace(/&[^;]+;/g," ").replace(/\s+/g," ").trim(); }
+  function timeAgo(d) { if(!d)return""; const m=(new Date()-new Date(d))/60000; if(m<60)return`${~~m}분 전`; if(m<1440)return`${~~(m/60)}시간 전`; return`${~~(m/1440)}일 전`; }
 
-  // ── 컴포넌트 ──────────────────────────────────────────
-  function AskButton({ phone, kakaoUrl }) {
+  const HOOKS = [
+    ["금리인상","💸 금리 또 오른다! 내 보험 이자는?"],["금리인하","📉 금리 내렸다! 저축보험 어떡하지?"],
+    ["금리","💰 금리 변동! 내 보험에 미치는 영향은?"],["보험료","😱 보험료 또 바뀐다?! 지금 확인해봐"],
+    ["연금개혁","🔥 연금 개혁! 노후 준비 다시 점검해야"],["연금","☾ 연금 안 챙기면 노후에 후회한다!"],
+    ["실손","🏥 실손보험 또 바뀐다! 내 계약은?"],["암보험","🎗️ 암보험 이거 모르면 손해!"],
+    ["주식","📈 주식 요동! 내 변액보험 괜찮을까?"],["코스피","📊 코스피 급등락! 보험 포트폴리오 점검"],
+    ["세금","💰 세금 또 바뀐다! 보험으로 절세 가능"],["부동산","🏠 부동산 변동, 내 보험 재점검 필요"],
+    ["고령","👴 고령화 시대, 지금 준비 안 하면 늦어!"],["의료","🏥 의료비 폭탄 대비, 지금이 기회!"],
+  ];
+
+  function makeHookTitle(title, i) {
+    if(!title) return "📰 오늘의 주요 금융 소식";
+    for(const [k,h] of HOOKS) if(title.includes(k)) return h;
+    return `${"📌💡🔔⚡"[i%4]} ${title.slice(0,26)}...`;
+  }
+
+  function getInsight(title, summary) {
+    const t = (title+" "+summary).toLowerCase();
+    if(t.includes("금리")&&t.includes("인상")) return "금리 인상 → 변동금리 대출 부담 증가. 고정금리 전환 또는 보장성 보험 재검토 필요";
+    if(t.includes("금리")&&t.includes("인하")) return "금리 인하 → 저축·연금보험 수익률 하락 가능. 현재 계약 이율 확인 후 포트폴리오 조정 권고";
+    if(t.includes("금리")) return "금리 변동은 저축보험·연금 수익률에 직접 영향. 지금 계약 조건 점검이 필요한 시점";
+    if(t.includes("보험료")&&t.includes("인상")) return "보험료 인상 예고 → 갱신 전 특약 조정으로 절감 가능. 지금 계약 검토 권장";
+    if(t.includes("보험료")) return "보험료 변동 전 현재 계약의 보장 내용과 납입 조건 재확인 필요";
+    if(t.includes("연금")&&t.includes("개혁")) return "연금 개혁 → 공적 연금 감소 가능성. 개인연금·퇴직연금으로 노후 보완 전략 수립 시급";
+    if(t.includes("연금")) return "공적 연금만으론 노후 부족. 개인연금 추가 납입 또는 종신연금 전환 검토 권장";
+    if(t.includes("실손")) return "실손보험 구조 변화 → 현재 가입 세대 확인 후 4세대 전환 여부 상담 필요";
+    if(t.includes("세금")||t.includes("절세")) return "세제 변화 → 연금저축·IRP 세액공제 한도 활용이 절세 핵심. 연말 전 납입 전략 점검 권장";
+    if(t.includes("주식")||t.includes("코스피")) return "증시 변동성 확대 → 변액보험 펀드 비중 점검 및 안전자산 재배분 고려";
+    if(t.includes("부동산")||t.includes("아파트")) return "부동산 가격 변동 → 화재·재물보험 보장 금액 재설정 필요. 현재 계약 한도 확인 권장";
+    if(t.includes("고령")||t.includes("노후")||t.includes("은퇴")) return "고령화 시대 의료비·생활비 급증 → 종신보험·간병보험 추가 및 은퇴 설계 상담 권장";
+    if(t.includes("암")||t.includes("질병")||t.includes("의료")) return "의료비 부담 증가 → 실손·암보험 보장 범위 점검 및 부족한 보장 추가 가입 검토";
+    if(t.includes("물가")||t.includes("인플레")) return "물가 상승 → 보험금 실질 가치 하락. 보장금액 상향 또는 물가연동형 보험 검토 필요";
+    return "이 뉴스와 내 보험의 연관성, 설계사와 함께 점검해보세요";
+  }
+
+  async function fetchRssNews(category) {
+    const PROXY = "https://api.rss2json.com/v1/api.json?rss_url=";
+    const cat = CATEGORIES.find(c=>c.id===category);
+    if(!cat) return [];
+    let articles = [];
+    for(const feedUrl of cat.feeds) {
+      try {
+        const res = await fetch(`${PROXY}${encodeURIComponent(feedUrl)}&count=10`);
+        const data = await res.json();
+        if(data.status==="ok"&&data.items) articles=[...articles,...data.items];
+      } catch(e) {}
+    }
+    if(cat.keyword) {
+      const filtered = articles.filter(a=>(a.title||"").includes(cat.keyword)||(a.description||"").includes(cat.keyword));
+      if(filtered.length>=2) articles=filtered;
+    }
+    const seen=new Set();
+    articles=articles.filter(a=>{ if(seen.has(a.title))return false; seen.add(a.title); return true; });
+    articles.sort((a,b)=>new Date(b.pubDate)-new Date(a.pubDate));
+    return articles.slice(0,4).map((item,i)=>{
+      const rawSummary = stripHtml(item.description||item.content||"").slice(0,200);
+      return {
+        hook_title: makeHookTitle(item.title,i),
+        real_title: item.title||"제목 없음",
+        summary: rawSummary,
+        source: item.author||new URL(item.link||"https://news.naver.com").hostname.replace("www.",""),
+        link: item.link||"#",
+        pubDate: item.pubDate,
+        importance: i===0?"high":i===1?"medium":"low",
+        insight: getInsight(item.title||"",rawSummary),
+      };
+    });
+  }
+
+  // ══════════════════════════════════════════════════════
+  // 고객 가입 화면 (최초 1회)
+  // ══════════════════════════════════════════════════════
+  function OnboardingScreen({ onComplete }) {
+    const [step, setStep] = useState(1);
+    const [name, setName] = useState("");
+    const [phone, setPhone] = useState("");
+    const [interests, setInterests] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
+
+    const toggleInterest = (id) => {
+      setInterests(prev => prev.includes(id) ? prev.filter(x=>x!==id) : [...prev, id]);
+    };
+
+    const handleSubmit = async () => {
+      if(!name.trim()) { setError("이름을 입력해주세요"); return; }
+      if(!phone.trim()||phone.length<10) { setError("올바른 전화번호를 입력해주세요"); return; }
+      if(interests.length===0) { setError("관심 분야를 하나 이상 선택해주세요"); return; }
+      setLoading(true);
+      try {
+        const docRef = await db.collection("customers").add({
+          name: name.trim(),
+          phone: phone.trim(),
+          interests: interests,
+          registeredAt: firebase.firestore.FieldValue.serverTimestamp(),
+          lastVisit: firebase.firestore.FieldValue.serverTimestamp(),
+          memo: "",
+        });
+        localStorage.setItem("jjm_customer_id", docRef.id);
+        localStorage.setItem("jjm_customer_name", name.trim());
+        onComplete({ id: docRef.id, name: name.trim() });
+      } catch(e) {
+        setError("등록 중 오류가 발생했습니다. 다시 시도해주세요.");
+      } finally { setLoading(false); }
+    };
+
     return (
-      <div style={{ marginTop:14, display:"flex", gap:8 }}>
-        <a href={"tel:"+phone.replace(/^tel:/,"")} onClick={e=>e.stopPropagation()} style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", gap:5, padding:"10px 6px", background:"#004A96", color:"#fff", borderRadius:12, fontSize:13, fontWeight:800, textDecoration:"none" }}>📞 전화 상담</a>
-        <a href={kakaoUrl} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{ flex:1.6, display:"flex", alignItems:"center", justifyContent:"center", gap:6, padding:"10px 8px", background:"#FAE100", color:"#381E00", borderRadius:12, fontSize:13, fontWeight:900, textDecoration:"none" }}>💬 주진명에게 물어보기</a>
+      <div style={{ position:"fixed", inset:0, background:"linear-gradient(160deg,#001F5C,#003D8F)", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", zIndex:999, padding:"20px", animation:"fadeIn 0.4s ease" }}>
+        <div style={{ width:"100%", maxWidth:420, background:"#fff", borderRadius:24, overflow:"hidden", boxShadow:"0 20px 60px rgba(0,0,0,0.3)" }}>
+          {/* 헤더 */}
+          <div style={{ background:"linear-gradient(135deg,#001F5C,#003D8F)", padding:"28px 24px 20px", textAlign:"center" }}>
+            <div style={{ width:60, height:60, borderRadius:"50%", background:"linear-gradient(135deg,#C8A55A,#E2C876)", margin:"0 auto 12px", display:"flex", alignItems:"center", justifyContent:"center", fontSize:28 }}>👨‍💼</div>
+            <p style={{ fontSize:11, color:"#C8A55A", fontWeight:700, letterSpacing:2, marginBottom:4 }}>SAMSUNG LIFE INSURANCE</p>
+            <p style={{ fontSize:20, fontWeight:900, color:"#fff", marginBottom:4 }}>주진명의 데일리 브리핑</p>
+            <p style={{ fontSize:13, color:"rgba(255,255,255,0.6)" }}>맞춤 보험·금융 뉴스 서비스</p>
+          </div>
+
+          <div style={{ padding:"24px 20px" }}>
+            {step===1 && (
+              <div style={{ animation:"fadeIn 0.3s ease" }}>
+                <p style={{ fontSize:16, fontWeight:900, color:"#001F5C", marginBottom:6 }}>안녕하세요! 👋</p>
+                <p style={{ fontSize:13, color:"#5C7A9B", marginBottom:20, lineHeight:1.6 }}>처음 방문하셨군요! 맞춤 뉴스를 위해 간단한 정보를 입력해주세요.</p>
+                <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                  <div>
+                    <p style={{ fontSize:12, fontWeight:700, color:"#7A9ABB", marginBottom:6 }}>이름</p>
+                    <input value={name} onChange={e=>setName(e.target.value)} placeholder="홍길동" style={S.input} />
+                  </div>
+                  <div>
+                    <p style={{ fontSize:12, fontWeight:700, color:"#7A9ABB", marginBottom:6 }}>연락처</p>
+                    <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="010-0000-0000" style={S.input} type="tel" />
+                  </div>
+                </div>
+                {error && <p style={{ fontSize:12, color:"#C8000A", marginTop:8, fontWeight:700 }}>⚠️ {error}</p>}
+                <button onClick={()=>{ if(!name.trim()||!phone.trim()||phone.length<10){ setError("이름과 올바른 전화번호를 입력해주세요"); return; } setError(""); setStep(2); }} style={{ ...S.btn(true), width:"100%", padding:"14px 0", fontSize:15, borderRadius:12, marginTop:16 }}>다음 →</button>
+              </div>
+            )}
+
+            {step===2 && (
+              <div style={{ animation:"fadeIn 0.3s ease" }}>
+                <p style={{ fontSize:16, fontWeight:900, color:"#001F5C", marginBottom:6 }}>관심 분야를 선택해주세요</p>
+                <p style={{ fontSize:13, color:"#5C7A9B", marginBottom:16 }}>맞춤 뉴스를 보내드릴게요! (복수 선택 가능)</p>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:16 }}>
+                  {CATEGORIES.filter(c=>c.id!=="all").map(cat=>{
+                    const selected = interests.includes(cat.id);
+                    return (
+                      <button key={cat.id} onClick={()=>toggleInterest(cat.id)} style={{
+                        padding:"14px 10px", borderRadius:12, border: selected?"2px solid #004A96":"1.5px solid #D8E6F4",
+                        background: selected?"#EBF2FC":"#fff", cursor:"pointer",
+                        display:"flex", flexDirection:"column", alignItems:"center", gap:6,
+                        transition:"all 0.2s",
+                      }}>
+                        <span style={{ fontSize:22 }}>{cat.icon}</span>
+                        <span style={{ fontSize:12, fontWeight:800, color: selected?"#004A96":"#5C7A9B" }}>{cat.label}</span>
+                        {selected && <span style={{ fontSize:10, color:"#004A96", fontWeight:700 }}>✓ 선택됨</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+                {error && <p style={{ fontSize:12, color:"#C8000A", marginBottom:8, fontWeight:700 }}>⚠️ {error}</p>}
+                <div style={{ display:"flex", gap:8 }}>
+                  <button onClick={()=>{ setError(""); setStep(1); }} style={{ ...S.btn(false), flex:1, padding:"12px 0" }}>← 이전</button>
+                  <button onClick={handleSubmit} disabled={loading} style={{ ...S.btn(true), flex:2, padding:"12px 0", fontSize:14, background:loading?"#7A9ABB":"#004A96" }}>
+                    {loading ? "등록 중..." : "🎉 시작하기!"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     );
   }
 
-  function ArticleCard({ article, index, phone, kakaoUrl }) {
-    const cfg = importanceCfg[article.importance] || importanceCfg.low;
+  // ══════════════════════════════════════════════════════
+  // 뉴스 탭
+  // ══════════════════════════════════════════════════════
+  function ArticleCard({ article, index }) {
+    const cfg = importanceCfg[article.importance]||importanceCfg.low;
     const [open, setOpen] = useState(false);
     return (
       <div onClick={()=>setOpen(v=>!v)} style={{ ...S.card, marginBottom:14, cursor:"pointer", border:open?"2px solid #004A96":"1.5px solid #D8E6F4", boxShadow:open?"0 10px 36px rgba(0,74,150,0.14)":"0 2px 10px rgba(0,74,150,0.06)", transform:open?"scale(1.01)":"scale(1)", transition:"all 0.28s cubic-bezier(.4,0,.2,1)", animation:`slideUp 0.45s ease ${index*0.09}s both` }}>
-        <div style={{ background:cfg.ribbon, padding:"8px 16px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-          <span style={S.badge(cfg.bg)}>{cfg.label}</span>
-          <span style={{ fontSize:11, color:"#7A9ABB", fontWeight:600 }}>{article.source} · {timeAgo(article.pubDate)}</span>
-        </div>
-        <div style={{ padding:"14px 16px" }}>
-          <p style={{ fontSize:16, fontWeight:900, color:"#001F5C", lineHeight:1.45, margin:"0 0 4px" }}>{article.hook_title}</p>
-          <p style={{ fontSize:11, color:"#A0B8CC", margin:0 }}>원제: {article.real_title}</p>
-          <div style={{ textAlign:"right", marginTop:6 }}>
-            <span style={{ fontSize:12, fontWeight:700, color:open?"#004A96":"#A0B8CC", transition:"color 0.2s" }}>{open?"접기 ▲":"자세히 보기 ▼"}</span>
-          </div>
-        </div>
-        {open && (
-          <div style={{ padding:"0 16px 18px", borderTop:"1px dashed #C8DCF0", animation:"fadeIn 0.22s ease" }}>
-
-            {/* ① 뉴스 요약 */}
-            <div style={{ marginTop:14, marginBottom:12 }}>
-              <p style={{ fontSize:11, fontWeight:800, color:"#7A9ABB", letterSpacing:1, marginBottom:6 }}>📋 뉴스 요약</p>
-              <p style={{ fontSize:14, color:"#2A3D66", lineHeight:1.8, margin:0 }}>
-                {article.summary || "기사 내용을 불러오는 중입니다."}
-              </p>
-              {article.link && article.link !== "#" && (
-                <a href={article.link} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{ display:"inline-block", fontSize:12, color:"#5C7A9B", fontWeight:700, marginTop:6, textDecoration:"underline" }}>📎 원문 전체 보기</a>
-              )}
-            </div>
-
-            {/* ② 내 보험에 미치는 영향 */}
-            <div style={{ background:"linear-gradient(135deg,#E6F0FC,#F0F7FF)", borderLeft:"4px solid #004A96", borderRadius:"0 12px 12px 0", padding:"12px 14px", marginBottom:12 }}>
-              <p style={{ fontSize:11, fontWeight:800, color:"#004A96", marginBottom:6, letterSpacing:0.5 }}>💡 내 보험에 미치는 영향</p>
-              <p style={{ fontSize:13, color:"#1A3A70", fontWeight:600, lineHeight:1.7, margin:0 }}>{article.insight}</p>
-            </div>
-
-            {/* ③ 설계사와 상담하기 */}
-            <div style={{ background:"linear-gradient(135deg,#FFF8E6,#FFFDF2)", border:"1.5px solid #F0D98A", borderRadius:12, padding:"14px 16px", marginBottom:12 }}>
-              <p style={{ fontSize:12, fontWeight:800, color:"#8B6A00", marginBottom:4 }}>🤝 더 궁금하신가요?</p>
-              <p style={{ fontSize:13, color:"#6B5200", lineHeight:1.6, margin:"0 0 12px" }}>이 뉴스가 나의 보험 계약에 구체적으로 어떤 영향을 주는지, 주진명 컨설턴트에게 직접 물어보세요!</p>
-              <div style={{ display:"flex", gap:8 }}>
-                <a href={"tel:"+phone.replace(/^tel:/,"")} onClick={e=>e.stopPropagation()} style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", gap:5, padding:"11px 6px", background:"#004A96", color:"#fff", borderRadius:10, fontSize:13, fontWeight:800, textDecoration:"none" }}>📞 전화 상담</a>
-                <a href={kakaoUrl} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{ flex:1.6, display:"flex", alignItems:"center", justifyContent:"center", gap:6, padding:"11px 8px", background:"#FAE100", color:"#381E00", borderRadius:10, fontSize:13, fontWeight:900, textDecoration:"none" }}>💬 설계사와 상담하기</a>
-              </div>
-            </div>
-
-          </div>
-        )}
+      <div style={{ background:cfg.ribbon, padding:"8px 16px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+        <span style={S.badge(cfg.bg)}>{cfg.label}</span>
+        <span style={{ fontSize:11, color:"#7A9ABB", fontWeight:600 }}>{article.source} · {timeAgo(article.pubDate)}</span>
       </div>
+      <div style={{ padding:"14px 16px" }}>
+        <p style={{ fontSize:16, fontWeight:900, color:"#001F5C", lineHeight:1.45, margin:"0 0 4px" }}>{article.hook_title}</p>
+        <p style={{ fontSize:11, color:"#A0B8CC", margin:0 }}>원제: {article.real_title}</p>
+        <div style={{ textAlign:"right", marginTop:6 }}>
+          <span style={{ fontSize:12, fontWeight:700, color:open?"#004A96":"#A0B8CC" }}>{open?"접기 ▲":"자세히 보기 ▼"}</span>
+        </div>
+      </div>
+      {open && (
+        <div style={{ padding:"0 16px 18px", borderTop:"1px dashed #C8DCF0", animation:"fadeIn 0.22s ease" }}>
+          <div style={{ marginTop:14, marginBottom:12 }}>
+            <p style={{ fontSize:11, fontWeight:800, color:"#7A9ABB", letterSpacing:1, marginBottom:6 }}>📋 뉴스 요약</p>
+            <p style={{ fontSize:14, color:"#2A3D66", lineHeight:1.8, margin:0 }}>{article.summary||"기사 내용을 불러오는 중입니다."}</p>
+            {article.link&&article.link!=="#"&&<a href={article.link} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{ display:"inline-block", fontSize:12, color:"#5C7A9B", fontWeight:700, marginTop:6, textDecoration:"underline" }}>📎 원문 보기</a>}
+          </div>
+          <div style={{ background:"linear-gradient(135deg,#E6F0FC,#F0F7FF)", borderLeft:"4px solid #004A96", borderRadius:"0 12px 12px 0", padding:"12px 14px", marginBottom:12 }}>
+            <p style={{ fontSize:11, fontWeight:800, color:"#004A96", marginBottom:6 }}>💡 내 보험에 미치는 영향</p>
+            <p style={{ fontSize:13, color:"#1A3A70", fontWeight:600, lineHeight:1.7, margin:0 }}>{article.insight}</p>
+          </div>
+          <div style={{ background:"linear-gradient(135deg,#FFF8E6,#FFFDF2)", border:"1.5px solid #F0D98A", borderRadius:12, padding:"14px 16px" }}>
+            <p style={{ fontSize:12, fontWeight:800, color:"#8B6A00", marginBottom:4 }}>🤝 더 궁금하신가요?</p>
+            <p style={{ fontSize:13, color:"#6B5200", lineHeight:1.6, margin:"0 0 12px" }}>이 뉴스가 나의 보험 계약에 구체적으로 어떤 영향인지 주진명 컨설턴트에게 직접 물어보세요!</p>
+            <div style={{ display:"flex", gap:8 }}>
+              <a href={"tel:"+CONSULTANT_PHONE} onClick={e=>e.stopPropagation()} style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", padding:"11px 6px", background:"#004A96", color:"#fff", borderRadius:10, fontSize:13, fontWeight:800, textDecoration:"none" }}>📞 전화 상담</a>
+              <a href={CONSULTANT_KAKAO} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{ flex:1.6, display:"flex", alignItems:"center", justifyContent:"center", padding:"11px 8px", background:"#FAE100", color:"#381E00", borderRadius:10, fontSize:13, fontWeight:900, textDecoration:"none" }}>💬 설계사와 상담하기</a>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
     );
   }
 
   function Skeleton() {
     return (
       <div style={{ ...S.card, marginBottom:14 }}>
-        <div style={{ background:"#EAF1FC", height:36 }} />
+        <div style={{ background:"#EAF1FC", height:36 }}/>
         <div style={{ padding:16 }}>
-          <div style={{ height:18, width:"80%", background:"#E4EEF8", borderRadius:6, marginBottom:10, animation:"pulse 1.4s ease infinite" }} />
-          <div style={{ height:14, width:"55%", background:"#E4EEF8", borderRadius:6, animation:"pulse 1.4s ease 0.15s infinite" }} />
+          <div style={{ height:18, width:"80%", background:"#E4EEF8", borderRadius:6, marginBottom:10, animation:"pulse 1.4s ease infinite" }}/>
+          <div style={{ height:14, width:"55%", background:"#E4EEF8", borderRadius:6, animation:"pulse 1.4s ease 0.15s infinite" }}/>
         </div>
       </div>
     );
   }
 
-  // ── 뉴스 탭 ──────────────────────────────────────────
-  function NewsTab({ phone, kakaoUrl }) {
+  function NewsTab({ customerName }) {
     const [cat, setCat] = useState("all");
     const [articles, setArticles] = useState([]);
     const [loading, setLoading] = useState(false);
     const [updated, setUpdated] = useState(null);
     const [error, setError] = useState(null);
 
-    const load = useCallback(async (catId) => {
+    const load = useCallback(async(catId)=>{
       setLoading(true); setError(null);
-      try {
-        const res = await fetchRssNews(catId);
-        setArticles(res); setUpdated(new Date());
-      } catch(e) {
-        setError("뉴스를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.");
-      } finally { setLoading(false); }
-    }, []);
+      try { const res=await fetchRssNews(catId); setArticles(res); setUpdated(new Date()); }
+      catch(e) { setError("뉴스를 불러오지 못했습니다. 잠시 후 다시 시도해주세요."); }
+      finally { setLoading(false); }
+    },[]);
 
-    useEffect(() => { load(cat); }, [cat]);
+    useEffect(()=>{ load(cat); },[cat]);
 
-    const today = new Date().toLocaleDateString("ko-KR",{ year:"numeric",month:"long",day:"numeric",weekday:"long" });
+    const today = new Date().toLocaleDateString("ko-KR",{year:"numeric",month:"long",day:"numeric",weekday:"long"});
 
     return (
       <div>
-        <div style={{ background:"linear-gradient(160deg,#001F5C 0%,#003D8F 55%,#005CC8 100%)", padding:"28px 18px 0", position:"sticky", top:52, zIndex:90, boxShadow:"0 4px 20px rgba(0,31,92,0.25)" }}>
+        <div style={{ background:"linear-gradient(160deg,#001F5C 0%,#003D8F 55%,#005CC8 100%)", padding:"28px 18px 0", position:"sticky", top:52, zIndex:90 }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
             <div>
               <div style={{ fontSize:10, fontWeight:700, letterSpacing:"2.5px", color:"#C8A55A", marginBottom:8, display:"flex", alignItems:"center", gap:8 }}>
@@ -351,92 +337,93 @@
                 주진명의 데일리 브리핑
                 <span style={{ width:20, height:1.5, background:"linear-gradient(90deg,transparent,#C8A55A)", display:"inline-block" }}/>
               </div>
-              <div>
-                <span style={{ display:"block", fontSize:26, fontWeight:900, color:"#fff", letterSpacing:"-0.8px" }}>오늘의 금융 뉴스</span>
-                <span style={{ display:"inline-block", fontSize:12, fontWeight:700, color:"#C8A55A", background:"rgba(200,165,90,0.15)", border:"1px solid rgba(200,165,90,0.4)", padding:"4px 12px", borderRadius:20, marginTop:7 }}>삼성생명 보험 고객 맞춤 뉴스</span>
-              </div>
+              <span style={{ display:"block", fontSize:24, fontWeight:900, color:"#fff" }}>
+                {customerName ? `${customerName}님의 금융 뉴스` : "오늘의 금융 뉴스"}
+              </span>
+              <span style={{ display:"inline-block", fontSize:12, fontWeight:700, color:"#C8A55A", background:"rgba(200,165,90,0.15)", border:"1px solid rgba(200,165,90,0.4)", padding:"4px 12px", borderRadius:20, marginTop:7 }}>삼성생명 보험 고객 맞춤 뉴스</span>
             </div>
-            <button onClick={()=>load(cat)} disabled={loading} style={{ background:loading?"rgba(255,255,255,0.08)":"rgba(200,165,90,0.88)", border:"none", borderRadius:"50%", width:44, height:44, cursor:loading?"not-allowed":"pointer", fontSize:20, display:"flex", alignItems:"center", justifyContent:"center", animation:loading?"spin 0.9s linear infinite":"none", color:loading?"#5B7BAA":"#001F5C", flexShrink:0 }}>↻</button>
+            <button onClick={()=>load(cat)} disabled={loading} style={{ background:loading?"rgba(255,255,255,0.08)":"rgba(200,165,90,0.88)", border:"none", borderRadius:"50%", width:44, height:44, cursor:"pointer", fontSize:20, display:"flex", alignItems:"center", justifyContent:"center", animation:loading?"spin 0.9s linear infinite":"none", color:loading?"#5B7BAA":"#001F5C", flexShrink:0 }}>↻</button>
           </div>
           <div style={{ marginTop:8, fontSize:11, color:"rgba(255,255,255,0.4)" }}>
-            {today}
-            {updated && <span style={{ marginLeft:8, color:"#C8A55A" }}>· 업데이트 {updated.toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit"})}</span>}
+            {today}{updated&&<span style={{ marginLeft:8, color:"#C8A55A" }}>· 업데이트 {updated.toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit"})}</span>}
           </div>
           <div style={{ marginTop:14, display:"flex", gap:7, overflowX:"auto", paddingBottom:14 }}>
             {CATEGORIES.map(c=>{
-              const active = cat===c.id;
-              return <button key={c.id} onClick={()=>{if(!active)setCat(c.id)}} style={{ flexShrink:0, background:active?"linear-gradient(135deg,#C8A55A,#E2C876)":"rgba(255,255,255,0.10)", color:active?"#001F5C":"rgba(255,255,255,0.65)", border:active?"none":"1px solid rgba(255,255,255,0.15)", borderRadius:20, padding:"7px 14px", fontSize:12, fontWeight:800, cursor:"pointer", boxShadow:active?"0 2px 12px rgba(200,165,90,0.45)":"none" }}>{c.icon} {c.label}</button>;
+              const active=cat===c.id;
+              return <button key={c.id} onClick={()=>{if(!active)setCat(c.id)}} style={{ flexShrink:0, background:active?"linear-gradient(135deg,#C8A55A,#E2C876)":"rgba(255,255,255,0.10)", color:active?"#001F5C":"rgba(255,255,255,0.65)", border:active?"none":"1px solid rgba(255,255,255,0.15)", borderRadius:20, padding:"7px 14px", fontSize:12, fontWeight:800, cursor:"pointer" }}>{c.icon} {c.label}</button>;
             })}
           </div>
         </div>
-
         <div style={{ padding:"18px 14px 30px" }}>
-          {error && <div style={{ background:"#FFF0F0", borderRadius:12, padding:14, color:"#CC2222", fontSize:13, marginBottom:14, textAlign:"center" }}>⚠️ {error}</div>}
-          {loading ? (
-            <><div style={{ textAlign:"center", padding:"12px 0 14px", fontSize:13, color:"#004A96", fontWeight:800 }}>📡 최신 뉴스를 불러오는 중...</div>{[1,2,3,4].map(i=><Skeleton key={i}/>)}</>
-          ) : articles.length > 0 ? (
-            <>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14, padding:"10px 14px", background:"#fff", borderRadius:12, border:"1px solid #C8DCF0" }}>
-                <span style={{ fontSize:13, color:"#004A96", fontWeight:800 }}>📰 오늘 뉴스 {articles.length}건</span>
-                <span style={{ fontSize:11, color:"#8FAAC5" }}>탭하면 상세 확인</span>
-              </div>
-              {articles.map((a,i)=><ArticleCard key={i} article={a} index={i} phone={phone} kakaoUrl={kakaoUrl}/>)}
-              <div style={{ marginTop:20, background:"linear-gradient(135deg,#001F5C,#003D8F)", borderRadius:20, padding:"24px 20px", textAlign:"center", position:"relative", overflow:"hidden" }}>
-                <div style={{ position:"absolute", top:-30, right:-30, width:120, height:120, borderRadius:"50%", background:"rgba(200,165,90,0.10)" }}/>
-                <div style={{ width:54, height:54, borderRadius:"50%", background:"linear-gradient(135deg,#C8A55A,#E2C876)", margin:"0 auto 10px", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26 }}>👨‍💼</div>
-                <p style={{ fontSize:11, color:"#C8A55A", marginBottom:3, fontWeight:700, letterSpacing:"1.5px" }}>SAMSUNG LIFE INSURANCE</p>
-                <p style={{ fontSize:16, fontWeight:900, color:"#fff", marginBottom:4 }}>주진명 컨설턴트</p>
-                <p style={{ fontSize:12, color:"rgba(255,255,255,0.5)", marginBottom:16 }}>이 뉴스가 내 보험에 어떤 영향인지 궁금하시면?</p>
-                <div style={{ display:"flex", gap:10 }}>
-                  <a href={"tel:"+phone.replace(/^tel:/,"")} style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", padding:"12px 8px", background:"rgba(255,255,255,0.12)", color:"#fff", borderRadius:14, fontSize:13, fontWeight:700, textDecoration:"none", border:"1px solid rgba(255,255,255,0.2)" }}>📞 전화 상담</a>
-                  <a href={kakaoUrl} target="_blank" rel="noreferrer" style={{ flex:1.5, display:"flex", alignItems:"center", justifyContent:"center", padding:"12px 8px", background:"#FAE100", color:"#381E00", borderRadius:14, fontSize:14, fontWeight:900, textDecoration:"none" }}>💬 지금 바로 물어보기</a>
-                </div>
-              </div>
-            </>
-          ) : !error && (
-            <div style={{ textAlign:"center", padding:"60px 0", color:"#8FAAC5" }}>
-              <div style={{ fontSize:40, marginBottom:12 }}>📰</div>
-              <p style={{ fontWeight:700 }}>새로고침을 눌러 뉴스를 불러오세요</p>
+          {error&&<div style={{ background:"#FFF0F0", borderRadius:12, padding:14, color:"#CC2222", fontSize:13, marginBottom:14, textAlign:"center" }}>⚠️ {error}</div>}
+          {loading?(<><div style={{ textAlign:"center", padding:"12px 0 14px", fontSize:13, color:"#004A96", fontWeight:800 }}>📡 최신 뉴스를 불러오는 중...</div>{[1,2,3,4].map(i=><Skeleton key={i}/>)}</>)
+          :articles.length>0?(<>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14, padding:"10px 14px", background:"#fff", borderRadius:12, border:"1px solid #C8DCF0" }}>
+              <span style={{ fontSize:13, color:"#004A96", fontWeight:800 }}>📰 오늘 뉴스 {articles.length}건</span>
+              <span style={{ fontSize:11, color:"#8FAAC5" }}>탭하면 상세 확인</span>
             </div>
-          )}
+            {articles.map((a,i)=><ArticleCard key={i} article={a} index={i}/>)}
+            <div style={{ marginTop:20, background:"linear-gradient(135deg,#001F5C,#003D8F)", borderRadius:20, padding:"24px 20px", textAlign:"center" }}>
+              <div style={{ width:54, height:54, borderRadius:"50%", background:"linear-gradient(135deg,#C8A55A,#E2C876)", margin:"0 auto 10px", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26 }}>👨‍💼</div>
+              <p style={{ fontSize:11, color:"#C8A55A", marginBottom:3, fontWeight:700, letterSpacing:"1.5px" }}>SAMSUNG LIFE INSURANCE</p>
+              <p style={{ fontSize:16, fontWeight:900, color:"#fff", marginBottom:4 }}>주진명 컨설턴트</p>
+              <p style={{ fontSize:12, color:"rgba(255,255,255,0.5)", marginBottom:16 }}>뉴스가 내 보험에 어떤 영향인지 궁금하시면?</p>
+              <div style={{ display:"flex", gap:10 }}>
+                <a href={"tel:"+CONSULTANT_PHONE} style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", padding:"12px 8px", background:"rgba(255,255,255,0.12)", color:"#fff", borderRadius:14, fontSize:13, fontWeight:700, textDecoration:"none", border:"1px solid rgba(255,255,255,0.2)" }}>📞 전화 상담</a>
+                <a href={CONSULTANT_KAKAO} target="_blank" rel="noreferrer" style={{ flex:1.5, display:"flex", alignItems:"center", justifyContent:"center", padding:"12px 8px", background:"#FAE100", color:"#381E00", borderRadius:14, fontSize:14, fontWeight:900, textDecoration:"none" }}>💬 지금 바로 물어보기</a>
+              </div>
+            </div>
+          </>):!error&&(<div style={{ textAlign:"center", padding:"60px 0", color:"#8FAAC5" }}><div style={{ fontSize:40, marginBottom:12 }}>📰</div><p style={{ fontWeight:700 }}>새로고침을 눌러 뉴스를 불러오세요</p></div>)}
         </div>
       </div>
     );
   }
 
-  // ── 관리 탭 ──────────────────────────────────────────
-  function AdminTab({ phone, setPhone, kakaoUrl, setKakaoUrl }) {
+  // ══════════════════════════════════════════════════════
+  // 관리 탭
+  // ══════════════════════════════════════════════════════
+  function AdminTab() {
     const [sec, setSec] = useState("clients");
-    const [clients, setClients] = useState(()=>lsGet("clients", SAMPLE_CLIENTS));
-    const [insights, setInsights] = useState(()=>lsGet("insights", DEFAULT_INSIGHTS));
-    const [showAdd, setShowAdd] = useState(false);
-    const [editId, setEditId] = useState(null);
-    const [editText, setEditText] = useState("");
-    const [newC, setNewC] = useState({ name:"", phone:"", interest:"life", memo:"" });
+    const [clients, setClients] = useState([]);
+    const [loading, setLoading] = useState(true);
     const [searchQ, setSearchQ] = useState("");
-    const [sPhone, setSPhone] = useState(phone.replace(/^tel:/,""));
-    const [sKakao, setSKakao] = useState(kakaoUrl);
-    const [saved, setSaved] = useState(false);
+    const [editId, setEditId] = useState(null);
+    const [editMemo, setEditMemo] = useState("");
 
-    useEffect(()=>{ lsSet("clients",clients); }, [clients]);
-    useEffect(()=>{ lsSet("insights",insights); }, [insights]);
+    // Firebase에서 고객 목록 실시간 수신
+    useEffect(()=>{
+      const unsub = db.collection("customers").orderBy("registeredAt","desc").onSnapshot(snap=>{
+        const list = snap.docs.map(doc=>({ id:doc.id, ...doc.data() }));
+        setClients(list);
+        setLoading(false);
+      }, err=>{ console.error(err); setLoading(false); });
+      return ()=>unsub();
+    },[]);
 
-    const catLabel = id => CATEGORIES.find(c=>c.id===id)?.label||id;
-    const stats = CATEGORIES.filter(c=>c.id!=="all").map(cat=>({ ...cat, count:clients.filter(cl=>cl.interest===cat.id).length }));
-    const maxCount = Math.max(...stats.map(s=>s.count),1);
-    const filtered = clients.filter(cl=>cl.name.includes(searchQ)||cl.phone.includes(searchQ)||cl.memo.includes(searchQ));
-
-    const addClient = () => {
-      if (!newC.name||!newC.phone) return;
-      setClients(p=>[...p,{ ...newC, id:Date.now(), lastContact:new Date().toISOString().split("T")[0] }]);
-      setNewC({ name:"", phone:"", interest:"life", memo:"" }); setShowAdd(false);
+    const updateMemo = async(id, memo) => {
+      await db.collection("customers").doc(id).update({ memo });
+      setEditId(null);
     };
 
+    const deleteCustomer = async(id) => {
+      if(window.confirm("이 고객을 삭제하시겠습니까?")) {
+        await db.collection("customers").doc(id).delete();
+      }
+    };
+
+    const catLabel = id => CATEGORIES.find(c=>c.id===id)?.label||id;
+    const filtered = clients.filter(cl=>(cl.name||"").includes(searchQ)||(cl.phone||"").includes(searchQ)||(cl.memo||"").includes(searchQ));
+
+    // 통계
+    const stats = CATEGORIES.filter(c=>c.id!=="all").map(cat=>({
+      ...cat,
+      count: clients.filter(cl=>(cl.interests||[]).includes(cat.id)).length,
+    }));
+    const maxCount = Math.max(...stats.map(s=>s.count),1);
+
     const sectionBtns = [
-      { id:"clients",  label:"👥 고객" },
-      { id:"stats",    label:"📊 통계" },
-      { id:"insights", label:"📝 멘트" },
-      { id:"settings", label:"⚙️ 설정" },
+      { id:"clients", label:"👥 고객" },
+      { id:"stats",   label:"📊 통계" },
     ];
 
     return (
@@ -451,41 +438,23 @@
           </div>
           <div style={{ display:"flex", gap:6, paddingBottom:14 }}>
             {sectionBtns.map(b=>(
-              <button key={b.id} onClick={()=>setSec(b.id)} style={{ flex:1, padding:"8px 4px", borderRadius:12, fontSize:12, fontWeight:800, cursor:"pointer", border:"none", background:sec===b.id?"rgba(200,165,90,0.9)":"rgba(255,255,255,0.10)", color:sec===b.id?"#001F5C":"rgba(255,255,255,0.65)" }}>{b.label}</button>
+              <button key={b.id} onClick={()=>setSec(b.id)} style={{ flex:1, padding:"8px 4px", borderRadius:12, fontSize:13, fontWeight:800, cursor:"pointer", border:"none", background:sec===b.id?"rgba(200,165,90,0.9)":"rgba(255,255,255,0.10)", color:sec===b.id?"#001F5C":"rgba(255,255,255,0.65)" }}>{b.label}</button>
             ))}
           </div>
         </div>
 
         <div style={{ padding:"18px 14px 40px" }}>
 
-          {/* 고객 관리 */}
+          {/* 고객 목록 */}
           {sec==="clients" && (
             <div>
               <div style={{ display:"flex", gap:8, marginBottom:14 }}>
                 <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder="🔍 이름·전화·메모 검색" style={{ ...S.input, flex:1 }}/>
-                <button onClick={()=>setShowAdd(v=>!v)} style={{ ...S.btn(true), whiteSpace:"nowrap", flexShrink:0 }}>{showAdd?"✕ 닫기":"+ 추가"}</button>
               </div>
-              {showAdd && (
-                <div style={{ ...S.card, marginBottom:14, padding:16, border:"2px solid #C8A55A", animation:"fadeIn 0.2s ease" }}>
-                  <p style={{ fontSize:13, fontWeight:800, color:"#004A96", marginBottom:12 }}>새 고객 등록</p>
-                  <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-                    <input value={newC.name} onChange={e=>setNewC(p=>({...p,name:e.target.value}))} placeholder="이름 *" style={S.input}/>
-                    <input value={newC.phone} onChange={e=>setNewC(p=>({...p,phone:e.target.value}))} placeholder="전화번호 *" style={S.input}/>
-                    <select value={newC.interest} onChange={e=>setNewC(p=>({...p,interest:e.target.value}))} style={S.input}>
-                      {CATEGORIES.filter(c=>c.id!=="all").map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
-                    </select>
-                    <textarea value={newC.memo} onChange={e=>setNewC(p=>({...p,memo:e.target.value}))} placeholder="메모" rows={2} style={{ ...S.input, resize:"none" }}/>
-                    <div style={{ display:"flex", gap:8 }}>
-                      <button onClick={()=>setShowAdd(false)} style={{ ...S.btn(false), flex:1 }}>취소</button>
-                      <button onClick={addClient} style={{ ...S.btn(true), flex:1 }}>저장</button>
-                    </div>
-                  </div>
-                </div>
-              )}
               <div style={{ display:"flex", gap:8, marginBottom:14 }}>
                 {[
-                  { label:"전체 고객", value:clients.length, color:"#004A96" },
-                  { label:"이번 주 연락", value:clients.filter(c=>(new Date()-new Date(c.lastContact))<7*86400000).length, color:"#007A5E" },
+                  { label:"총 가입 고객", value:clients.length+"명", color:"#004A96" },
+                  { label:"오늘 신규", value:clients.filter(c=>{ if(!c.registeredAt)return false; const d=c.registeredAt.toDate?c.registeredAt.toDate():new Date(c.registeredAt); return (new Date()-d)<86400000; }).length+"명", color:"#007A5E" },
                 ].map(item=>(
                   <div key={item.label} style={{ flex:1, background:"#fff", borderRadius:14, padding:"14px 16px", border:"1.5px solid #D8E6F4", textAlign:"center" }}>
                     <p style={{ fontSize:24, fontWeight:900, color:item.color, margin:0 }}>{item.value}</p>
@@ -493,34 +462,58 @@
                   </div>
                 ))}
               </div>
-              {filtered.length===0
-                ? <div style={{ textAlign:"center", padding:"40px 0", color:"#8FAAC5" }}>검색 결과가 없습니다</div>
-                : filtered.map(cl=>(
-                  <div key={cl.id} style={{ ...S.card, marginBottom:10 }}>
-                    <div style={{ padding:"14px 16px", display:"flex", alignItems:"flex-start", gap:12 }}>
-                      <div style={{ width:42, height:42, borderRadius:"50%", background:CAT_COLORS[cl.interest]||"#004A96", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>
-                        {CATEGORIES.find(c=>c.id===cl.interest)?.icon||"◈"}
-                      </div>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                          <span style={{ fontSize:15, fontWeight:900, color:"#001F5C" }}>{cl.name}</span>
-                          <span style={{ ...S.badge(CAT_COLORS[cl.interest]||"#004A96"), fontSize:10 }}>{catLabel(cl.interest)}</span>
+
+              {loading ? <div style={{ textAlign:"center", padding:"40px 0", color:"#8FAAC5" }}>불러오는 중...</div>
+              : filtered.length===0 ? <div style={{ textAlign:"center", padding:"40px 0", color:"#8FAAC5" }}>등록된 고객이 없습니다</div>
+              : filtered.map(cl=>(
+                <div key={cl.id} style={{ ...S.card, marginBottom:10 }}>
+                  <div style={{ padding:"14px 16px" }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                        <div style={{ width:40, height:40, borderRadius:"50%", background:"linear-gradient(135deg,#004A96,#0066CC)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>👤</div>
+                        <div>
+                          <p style={{ fontSize:15, fontWeight:900, color:"#001F5C", margin:0 }}>{cl.name}</p>
+                          <p style={{ fontSize:12, color:"#5C7A9B", margin:"2px 0 0" }}>{cl.phone}</p>
                         </div>
-                        <p style={{ fontSize:13, color:"#5C7A9B", margin:"4px 0 2px" }}>{cl.phone}</p>
-                        {cl.memo && <p style={{ fontSize:12, color:"#7A9ABB", margin:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>📝 {cl.memo}</p>}
-                        <p style={{ fontSize:11, color:"#A0B8CC", margin:"4px 0 0" }}>최근 연락: {cl.lastContact}</p>
                       </div>
+                      <p style={{ fontSize:10, color:"#A0B8CC", margin:0, textAlign:"right" }}>
+                        {cl.registeredAt?.toDate ? cl.registeredAt.toDate().toLocaleDateString("ko-KR") : ""}
+                      </p>
                     </div>
-                    <div style={{ borderTop:"1px dashed #D8E6F4", display:"flex" }}>
-                      <a href={"tel:"+cl.phone} style={{ flex:1, padding:"10px 0", textAlign:"center", textDecoration:"none", fontSize:13, fontWeight:700, color:"#004A96" }}>📞 전화</a>
-                      <div style={{ width:1, background:"#D8E6F4" }}/>
-                      <button onClick={()=>setClients(p=>p.map(x=>x.id===cl.id?{...x,lastContact:new Date().toISOString().split("T")[0]}:x))} style={{ flex:1, padding:"10px 0", background:"none", border:"none", fontSize:13, fontWeight:700, color:"#007A5E", cursor:"pointer" }}>✅ 연락완료</button>
-                      <div style={{ width:1, background:"#D8E6F4" }}/>
-                      <button onClick={()=>setClients(p=>p.filter(x=>x.id!==cl.id))} style={{ flex:1, padding:"10px 0", background:"none", border:"none", fontSize:13, fontWeight:700, color:"#C8000A", cursor:"pointer" }}>🗑️ 삭제</button>
+
+                    {/* 관심분야 배지 */}
+                    <div style={{ display:"flex", flexWrap:"wrap", gap:4, marginBottom:8 }}>
+                      {(cl.interests||[]).map(int=>(
+                        <span key={int} style={{ ...S.badge(CAT_COLORS[int]||"#004A96"), fontSize:10 }}>{catLabel(int)}</span>
+                      ))}
                     </div>
+
+                    {/* 메모 */}
+                    {editId===cl.id ? (
+                      <div>
+                        <textarea value={editMemo} onChange={e=>setEditMemo(e.target.value)} rows={2} style={{ ...S.input, resize:"none", marginBottom:8 }} autoFocus/>
+                        <div style={{ display:"flex", gap:8 }}>
+                          <button onClick={()=>setEditId(null)} style={{ ...S.btn(false), flex:1, padding:"8px 0", fontSize:12 }}>취소</button>
+                          <button onClick={()=>updateMemo(cl.id,editMemo)} style={{ ...S.btn(true), flex:1, padding:"8px 0", fontSize:12 }}>저장</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                        <p style={{ fontSize:12, color:"#7A9ABB", margin:0 }}>{cl.memo ? `📝 ${cl.memo}` : "메모 없음"}</p>
+                        <button onClick={()=>{ setEditId(cl.id); setEditMemo(cl.memo||""); }} style={{ background:"none", border:"none", fontSize:14, cursor:"pointer", color:"#A0B8CC" }}>✏️</button>
+                      </div>
+                    )}
                   </div>
-                ))
-              }
+
+                  <div style={{ borderTop:"1px dashed #D8E6F4", display:"flex" }}>
+                    <a href={"tel:"+cl.phone} style={{ flex:1, padding:"10px 0", textAlign:"center", textDecoration:"none", fontSize:13, fontWeight:700, color:"#004A96" }}>📞 전화</a>
+                    <div style={{ width:1, background:"#D8E6F4" }}/>
+                    <a href={CONSULTANT_KAKAO} target="_blank" rel="noreferrer" style={{ flex:1, padding:"10px 0", textAlign:"center", textDecoration:"none", fontSize:13, fontWeight:700, color:"#E8A000" }}>💬 카카오</a>
+                    <div style={{ width:1, background:"#D8E6F4" }}/>
+                    <button onClick={()=>deleteCustomer(cl.id)} style={{ flex:1, padding:"10px 0", background:"none", border:"none", fontSize:13, fontWeight:700, color:"#C8000A", cursor:"pointer" }}>🗑️ 삭제</button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
@@ -528,7 +521,7 @@
           {sec==="stats" && (
             <div>
               <div style={{ ...S.card, padding:"20px 16px", marginBottom:14 }}>
-                <p style={{ fontSize:14, fontWeight:900, color:"#001F5C", marginBottom:16 }}>📊 고객 관심 카테고리 분포</p>
+                <p style={{ fontSize:14, fontWeight:900, color:"#001F5C", marginBottom:16 }}>📊 관심 카테고리 분포</p>
                 {stats.map(s=>(
                   <div key={s.id} style={{ marginBottom:14 }}>
                     <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}>
@@ -543,10 +536,10 @@
               </div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
                 {[
-                  { label:"총 고객 수", value:clients.length+"명", icon:"👥", color:"#004A96" },
-                  { label:"최다 관심분야", value:stats.sort((a,b)=>b.count-a.count)[0]?.label||"-", icon:"🏆", color:"#C8A55A" },
-                  { label:"이번 주 연락", value:clients.filter(c=>(new Date()-new Date(c.lastContact))<7*86400000).length+"명", icon:"📞", color:"#007A5E" },
-                  { label:"메모 등록", value:clients.filter(c=>c.memo).length+"건", icon:"📋", color:"#5C7A9B" },
+                  { label:"총 가입자", value:clients.length+"명", icon:"👥", color:"#004A96" },
+                  { label:"최다 관심", value:stats.sort((a,b)=>b.count-a.count)[0]?.label||"-", icon:"🏆", color:"#C8A55A" },
+                  { label:"오늘 신규", value:clients.filter(c=>{ if(!c.registeredAt)return false; const d=c.registeredAt.toDate?c.registeredAt.toDate():new Date(); return(new Date()-d)<86400000; }).length+"명", icon:"🆕", color:"#007A5E" },
+                  { label:"메모 등록", value:clients.filter(c=>c.memo).length+"건", icon:"📝", color:"#6A0DAD" },
                 ].map(item=>(
                   <div key={item.label} style={{ background:"#fff", borderRadius:14, padding:"16px 14px", border:"1.5px solid #D8E6F4", textAlign:"center" }}>
                     <div style={{ fontSize:24, marginBottom:6 }}>{item.icon}</div>
@@ -557,178 +550,83 @@
               </div>
             </div>
           )}
-
-          {/* 멘트 편집 */}
-          {sec==="insights" && (
-            <div>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
-                <p style={{ fontSize:14, fontWeight:900, color:"#001F5C", margin:0 }}>나만의 인사이트 멘트</p>
-                <button onClick={()=>setInsights(p=>[...p,{id:Date.now(),category:"전체",text:"새 멘트를 입력하세요",active:true}])} style={{ ...S.btn(true), padding:"8px 14px", fontSize:12 }}>+ 추가</button>
-              </div>
-              {insights.map(ins=>(
-                <div key={ins.id} style={{ ...S.card, marginBottom:10, opacity:ins.active?1:0.55, transition:"opacity 0.2s" }}>
-                  <div style={{ padding:"12px 14px" }}>
-                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
-                      <span style={{ ...S.badge("#004A96"), fontSize:10 }}>{ins.category}</span>
-                      <button onClick={()=>setInsights(p=>p.map(x=>x.id===ins.id?{...x,active:!x.active}:x))} style={{ ...S.btn(false), padding:"4px 10px", fontSize:11 }}>{ins.active?"🔵 활성":"⚪ 비활성"}</button>
-                    </div>
-                    {editId===ins.id ? (
-                      <div>
-                        <textarea value={editText} onChange={e=>setEditText(e.target.value)} rows={2} style={{ ...S.input, resize:"none", marginBottom:8 }} autoFocus/>
-                        <div style={{ display:"flex", gap:8 }}>
-                          <button onClick={()=>setEditId(null)} style={{ ...S.btn(false), flex:1, padding:"8px 0" }}>취소</button>
-                          <button onClick={()=>{ setInsights(p=>p.map(x=>x.id===ins.id?{...x,text:editText}:x)); setEditId(null); }} style={{ ...S.btn(true), flex:1, padding:"8px 0" }}>저장</button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
-                        <p style={{ fontSize:14, color:"#2A3D66", lineHeight:1.6, margin:0, flex:1 }}>💡 {ins.text}</p>
-                        <button onClick={()=>{ setEditId(ins.id); setEditText(ins.text); }} style={{ background:"none", border:"none", fontSize:16, cursor:"pointer", color:"#7A9ABB", flexShrink:0 }}>✏️</button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* 설정 */}
-          {sec==="settings" && (
-            <div>
-              <div style={{ background:"#E6F7F0", borderRadius:14, padding:"14px 16px", marginBottom:16, border:"1px solid #A8DCC8" }}>
-                <p style={{ fontSize:13, color:"#006B4F", fontWeight:700, margin:0 }}>✅ 이 앱은 완전 무료입니다! API 키나 결제가 필요 없어요. 한국 경제 뉴스를 실시간으로 자동 수집합니다.</p>
-              </div>
-              <div style={{ ...S.card, padding:"22px 18px", marginBottom:14 }}>
-                <p style={{ fontSize:14, fontWeight:900, color:"#001F5C", marginBottom:4 }}>📞 전화번호</p>
-                <p style={{ fontSize:12, color:"#7A9ABB", marginBottom:12 }}>고객이 "전화 상담" 버튼을 누르면 연결되는 번호입니다.</p>
-                <input value={sPhone} onChange={e=>setSPhone(e.target.value)} placeholder="예: 010-1234-5678" style={S.input}/>
-              </div>
-              <div style={{ ...S.card, padding:"22px 18px", marginBottom:14 }}>
-                <p style={{ fontSize:14, fontWeight:900, color:"#001F5C", marginBottom:4 }}>💬 카카오 오픈채팅 URL</p>
-                <p style={{ fontSize:12, color:"#C8A55A", fontWeight:700, marginBottom:8 }}>카카오톡 → 오픈채팅 → 내 채팅방 → 링크 복사</p>
-                <input value={sKakao} onChange={e=>setSKakao(e.target.value)} placeholder="https://open.kakao.com/o/..." style={S.input}/>
-              </div>
-              <button
-                onClick={()=>{
-                  setPhone("tel:"+sPhone.replace(/^tel:/,""));
-                  setKakaoUrl(sKakao);
-                  lsSet("phone","tel:"+sPhone.replace(/^tel:/,""));
-                  lsSet("kakaoUrl",sKakao);
-                  setSaved(true); setTimeout(()=>setSaved(false),2500);
-                }}
-                style={{ ...S.btn(true), width:"100%", padding:"14px 0", fontSize:15, borderRadius:14, background:saved?"#007A5E":"#004A96", transition:"background 0.3s" }}
-              >
-                {saved?"✅ 저장 완료!":"💾 저장하기"}
-              </button>
-              {saved && <div style={{ marginTop:12, padding:"12px 16px", background:"#E6F7F0", borderRadius:12, border:"1px solid #A8DCC8" }}><p style={{ fontSize:13, color:"#006B4F", fontWeight:700, margin:0 }}>✅ 저장됐습니다!</p></div>}
-            </div>
-          )}
         </div>
       </div>
     );
   }
 
-  // ── 비밀번호 잠금 화면 ───────────────────────────────
-  const ADMIN_PW = "1234"; // ← 원하는 비밀번호로 변경하세요!
-
+  // ══════════════════════════════════════════════════════
+  // 비밀번호 잠금
+  // ══════════════════════════════════════════════════════
   function LockScreen({ onUnlock }) {
-    const [pw, setPw] = useState("");
-    const [shake, setShake] = useState(false);
     const [dots, setDots] = useState([]);
-
+    const [shake, setShake] = useState(false);
+    const nums = [1,2,3,4,5,6,7,8,9,"",0,"⌫"];
     const handleNum = (n) => {
-      if (dots.length >= 4) return;
-      const next = [...dots, n];
+      if(dots.length>=4) return;
+      const next=[...dots,n];
       setDots(next);
-      if (next.length === 4) {
-        setTimeout(() => {
-          if (next.join("") === ADMIN_PW) {
-            onUnlock();
-          } else {
-            setShake(true);
-            setTimeout(() => { setShake(false); setDots([]); }, 600);
-          }
-        }, 200);
+      if(next.length===4) {
+        setTimeout(()=>{
+          if(next.join("")===ADMIN_PW) { onUnlock(); }
+          else { setShake(true); setTimeout(()=>{ setShake(false); setDots([]); },600); }
+        },200);
       }
     };
-
-    const handleDel = () => setDots(d => d.slice(0, -1));
-
-    const nums = [1,2,3,4,5,6,7,8,9,"",0,"⌫"];
-
     return (
-      <div style={{ position:"fixed", inset:0, background:"linear-gradient(160deg,#001F5C,#003D8F)", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", zIndex:999, animation:"fadeIn 0.3s ease" }}>
-        <div style={{ width:64, height:64, borderRadius:"50%", background:"linear-gradient(135deg,#C8A55A,#E2C876)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:30, marginBottom:20 }}>🔐</div>
-        <p style={{ fontSize:12, color:"#C8A55A", fontWeight:700, letterSpacing:2, marginBottom:8 }}>CONSULTANT ONLY</p>
-        <p style={{ fontSize:18, fontWeight:900, color:"#fff", marginBottom:32 }}>관리자 비밀번호 입력</p>
-
-        {/* 점 표시 */}
-        <div style={{ display:"flex", gap:16, marginBottom:40, animation:shake?"shake 0.5s ease":"none" }}>
-          {[0,1,2,3].map(i => (
-            <div key={i} style={{ width:16, height:16, borderRadius:"50%", background: i < dots.length ? "#C8A55A" : "rgba(255,255,255,0.2)", transition:"background 0.15s", border:"2px solid rgba(255,255,255,0.3)" }}/>
-          ))}
+      <div style={{ position:"fixed", inset:0, background:"linear-gradient(160deg,#001F5C,#003D8F)", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", zIndex:999 }}>
+        <div style={{ width:64, height:64, borderRadius:"50%", background:"linear-gradient(135deg,#C8A55A,#E2C876)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:30, marginBottom:16 }}>🔐</div>
+        <p style={{ fontSize:12, color:"#C8A55A", fontWeight:700, letterSpacing:2, marginBottom:6 }}>CONSULTANT ONLY</p>
+        <p style={{ fontSize:18, fontWeight:900, color:"#fff", marginBottom:28 }}>관리자 비밀번호</p>
+        <div style={{ display:"flex", gap:16, marginBottom:36, animation:shake?"shake 0.5s ease":"none" }}>
+          {[0,1,2,3].map(i=><div key={i} style={{ width:16, height:16, borderRadius:"50%", background:i<dots.length?"#C8A55A":"rgba(255,255,255,0.2)", border:"2px solid rgba(255,255,255,0.3)", transition:"background 0.15s" }}/>)}
         </div>
-
-        {shake && <p style={{ color:"#FF6B6B", fontSize:13, fontWeight:700, marginBottom:16, animation:"fadeIn 0.2s ease" }}>비밀번호가 틀렸습니다</p>}
-
-        {/* 숫자 패드 */}
+        {shake&&<p style={{ color:"#FF6B6B", fontSize:13, fontWeight:700, marginBottom:16 }}>비밀번호가 틀렸습니다</p>}
         <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 72px)", gap:12 }}>
-          {nums.map((n, i) => (
-            <button key={i} onClick={() => { if(n==="⌫") handleDel(); else if(n!=="") handleNum(String(n)); }}
-              style={{
-                width:72, height:72, borderRadius:"50%",
-                background: n===""?"transparent":"rgba(255,255,255,0.12)",
-                border: n===""?"none":"1px solid rgba(255,255,255,0.2)",
-                color:"#fff", fontSize: n==="⌫"?22:24, fontWeight:700,
-                cursor: n===""?"default":"pointer",
-                transition:"background 0.15s",
-              }}
+          {nums.map((n,i)=>(
+            <button key={i} onClick={()=>{ if(n==="⌫") setDots(d=>d.slice(0,-1)); else if(n!=="") handleNum(String(n)); }}
+              style={{ width:72, height:72, borderRadius:"50%", background:n===""?"transparent":"rgba(255,255,255,0.12)", border:n===""?"none":"1px solid rgba(255,255,255,0.2)", color:"#fff", fontSize:n==="⌫"?22:24, fontWeight:700, cursor:n===""?"default":"pointer" }}
             >{n}</button>
           ))}
         </div>
-
-        <style>{`
-          @keyframes shake {
-            0%,100%{transform:translateX(0)}
-            20%{transform:translateX(-8px)}
-            40%{transform:translateX(8px)}
-            60%{transform:translateX(-6px)}
-            80%{transform:translateX(6px)}
-          }
-        `}</style>
       </div>
     );
   }
 
-  // ── 메인 앱 ──────────────────────────────────────────
+  // ══════════════════════════════════════════════════════
+  // 메인 앱
+  // ══════════════════════════════════════════════════════
   function App() {
     const [tab, setTab] = useState("news");
     const [adminUnlocked, setAdminUnlocked] = useState(false);
     const [showLock, setShowLock] = useState(false);
+    const [customer, setCustomer] = useState(null);
+    const [checkingCustomer, setCheckingCustomer] = useState(true);
 
-    const handleTabClick = (id) => {
-      if (id === "admin" && !adminUnlocked) {
-        setShowLock(true);
-      } else {
-        setTab(id);
+    useEffect(()=>{
+      const id = localStorage.getItem("jjm_customer_id");
+      const name = localStorage.getItem("jjm_customer_name");
+      if(id && name) {
+        setCustomer({ id, name });
+        // 방문 시간 업데이트
+        db.collection("customers").doc(id).update({ lastVisit: firebase.firestore.FieldValue.serverTimestamp() }).catch(()=>{});
       }
-    };
+      setCheckingCustomer(false);
+    },[]);
 
-    const handleUnlock = () => {
-      setAdminUnlocked(true);
-      setShowLock(false);
-      setTab("admin");
-    };
+    if(checkingCustomer) return <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", background:"#001F5C" }}><div style={{ color:"#C8A55A", fontSize:16, fontWeight:700 }}>로딩 중...</div></div>;
+
+    if(!customer) return <OnboardingScreen onComplete={setCustomer} />;
 
     return (
       <div style={{ maxWidth:480, margin:"0 auto", minHeight:"100vh", background:"#EBF2FC" }}>
-        {showLock && <LockScreen onUnlock={handleUnlock} />}
+        {showLock && <LockScreen onUnlock={()=>{ setAdminUnlocked(true); setShowLock(false); setTab("admin"); }} />}
         <div style={{ position:"sticky", top:0, zIndex:100, background:"#001240", display:"flex", borderBottom:"1px solid rgba(255,255,255,0.08)" }}>
-          <button onClick={()=>handleTabClick("news")} style={{ flex:1, padding:"14px 0", border:"none", cursor:"pointer", background:"none", color:tab==="news"?"#C8A55A":"rgba(255,255,255,0.45)", fontSize:14, fontWeight:900, borderBottom:tab==="news"?"3px solid #C8A55A":"3px solid transparent", transition:"all 0.2s" }}>📰 뉴스</button>
-          <button onClick={()=>handleTabClick("admin")} style={{ width:44, padding:"14px 0", border:"none", cursor:"pointer", background:"none", color:tab==="admin"?"#C8A55A":"rgba(255,255,255,0.15)", fontSize:11, fontWeight:700, borderBottom:tab==="admin"?"3px solid #C8A55A":"3px solid transparent", transition:"all 0.2s" }}>⚙️</button>
+          <button onClick={()=>setTab("news")} style={{ flex:1, padding:"14px 0", border:"none", cursor:"pointer", background:"none", color:tab==="news"?"#C8A55A":"rgba(255,255,255,0.45)", fontSize:14, fontWeight:900, borderBottom:tab==="news"?"3px solid #C8A55A":"3px solid transparent", transition:"all 0.2s" }}>📰 뉴스</button>
+          <button onClick={()=>{ if(!adminUnlocked) setShowLock(true); else setTab("admin"); }} style={{ width:44, padding:"14px 0", border:"none", cursor:"pointer", background:"none", color:tab==="admin"?"#C8A55A":"rgba(255,255,255,0.15)", fontSize:11, fontWeight:700, borderBottom:tab==="admin"?"3px solid #C8A55A":"3px solid transparent" }}>⚙️</button>
         </div>
-        {tab==="news"  && <NewsTab phone={CONSULTANT_PHONE} kakaoUrl={CONSULTANT_KAKAO}/>}
-        {tab==="admin" && adminUnlocked && <AdminTab phone={CONSULTANT_PHONE} kakaoUrl={CONSULTANT_KAKAO}/>}
+        {tab==="news" && <NewsTab customerName={customer.name}/>}
+        {tab==="admin" && adminUnlocked && <AdminTab/>}
       </div>
     );
   }
