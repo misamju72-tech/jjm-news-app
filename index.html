@@ -91,11 +91,16 @@
     { id:5, name:"정다은", phone:"010-2222-8888", interest:"life",    memo:"실손의료보험 청구 도움 요청",   lastContact:"2026-05-03" },
   ];
 
-  // localStorage 헬퍼
+  // ══════════════════════════════════════════════════
+  // ✅ 여기만 수정하세요! (GitHub에서 이 두 줄만 바꾸면 전체 반영)
+  // ══════════════════════════════════════════════════
+  const CONSULTANT_PHONE   = "010-7513-9854";                      // ← 전화번호
+  const CONSULTANT_KAKAO   = "https://open.kakao.com/o/sEGyTGti";  // ← 카카오 링크
+  // ══════════════════════════════════════════════════
+
+  // localStorage (고객목록·멘트 저장용)
   function lsGet(key, def) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch { return def; } }
   function lsSet(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }
-
-  // ── RSS 뉴스 가져오기 (완전 무료) ────────────────────
   async function fetchRssNews(category) {
     const PROXY = "https://api.rss2json.com/v1/api.json?rss_url=";
     const cat = CATEGORIES.find(c => c.id === category);
@@ -133,16 +138,19 @@
     articles.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate));
 
     // 상위 4개 반환
-    return articles.slice(0, 4).map((item, i) => ({
-      hook_title: makeHookTitle(item.title, i),
-      real_title: item.title || "제목 없음",
-      summary: stripHtml(item.description || item.content || "").slice(0, 120),
-      source: item.author || new URL(item.link || "https://news.naver.com").hostname.replace("www.",""),
-      link: item.link || "#",
-      pubDate: item.pubDate,
-      importance: i === 0 ? "high" : i === 1 ? "medium" : "low",
-      insight: getInsight(item.title || ""),
-    }));
+    return articles.slice(0, 4).map((item, i) => {
+      const rawSummary = stripHtml(item.description || item.content || "").slice(0, 200);
+      return {
+        hook_title: makeHookTitle(item.title, i),
+        real_title: item.title || "제목 없음",
+        summary: rawSummary,
+        source: item.author || new URL(item.link || "https://news.naver.com").hostname.replace("www.",""),
+        link: item.link || "#",
+        pubDate: item.pubDate,
+        importance: i === 0 ? "high" : i === 1 ? "medium" : "low",
+        insight: getInsight(item.title || "", rawSummary),
+      };
+    });
   }
 
   // 재미있는 제목 변환
@@ -166,13 +174,49 @@
     return `${emojis[index % emojis.length]} ${title.slice(0, 28)}...`;
   }
 
-  function getInsight(title) {
-    if (title.includes("금리")) return "금리 변동 시 저축성 보험 수익률 재점검 권고";
-    if (title.includes("보험료")) return "보험료 변동 전 현재 계약 조건 확인 필요";
-    if (title.includes("연금")) return "연금 수령 시기 및 금액 시뮬레이션 권장";
-    if (title.includes("주식") || title.includes("펀드")) return "변액보험 투자 포트폴리오 점검 권고";
-    if (title.includes("세금")) return "보험을 활용한 절세 전략 상담 추천";
-    return "고객 맞춤 보험 리뷰 상담 권장";
+  function getInsight(title, summary) {
+    const text = (title + " " + summary).toLowerCase();
+
+    // 금리 관련
+    if (text.includes("금리") && text.includes("인상")) return "금리 인상 시 변동금리 대출 보험료 부담 증가 → 고정금리 전환 또는 보장성 보험 재검토 필요";
+    if (text.includes("금리") && text.includes("인하")) return "금리 인하 시 저축성·연금보험 수익률 하락 가능 → 현재 계약 이율 확인 후 포트폴리오 재조정 권고";
+    if (text.includes("금리")) return "금리 변동은 저축보험·연금 수익률에 직접 영향 → 지금 계약 조건 점검이 필요한 시점";
+
+    // 보험료 관련
+    if (text.includes("보험료") && text.includes("인상")) return "실손·자동차 보험료 인상 예고 → 갱신 전 다이렉트 비교 또는 특약 조정으로 절감 가능";
+    if (text.includes("보험료")) return "보험료 변동 전 현재 계약의 보장 내용과 납입 조건 재확인 권장";
+
+    // 연금 관련
+    if (text.includes("연금") && text.includes("개혁")) return "연금 개혁은 공적 연금 수령액 감소 가능성 → 개인연금·퇴직연금으로 노후 보완 전략 수립 시급";
+    if (text.includes("연금") && text.includes("수령")) return "연금 수령 시기 선택이 총 수령액에 큰 영향 → 개인 상황에 맞는 최적 수령 시점 시뮬레이션 필요";
+    if (text.includes("연금")) return "공적 연금만으론 노후 부족 → 개인연금 추가 납입 또는 종신연금 전환 검토 권장";
+
+    // 실손 관련
+    if (text.includes("실손")) return "실손보험 청구·갱신 구조 변화 → 현재 가입된 세대 확인 후 4세대 전환 여부 상담 필요";
+
+    // 세금·절세
+    if (text.includes("세금") || text.includes("절세") || text.includes("과세")) return "세제 변화 시 연금저축·IRP 세액공제 한도 활용이 절세 핵심 → 연말 전 납입 전략 점검 권장";
+
+    // 주식·펀드·투자
+    if (text.includes("주식") || text.includes("코스피") || text.includes("증시")) return "증시 변동성 확대 → 변액보험 펀드 비중 점검 및 안전자산 재배분 고려 필요";
+    if (text.includes("펀드")) return "펀드 수익률 변동 → 변액보험 특별계정 운용 현황 점검 및 펀드 변경 검토";
+
+    // 부동산
+    if (text.includes("부동산") || text.includes("아파트")) return "부동산 가격 변동은 화재·재물보험 보장 금액 재설정 필요 → 현재 계약 보장 한도 확인 권장";
+
+    // 고령화·노후
+    if (text.includes("고령") || text.includes("노후") || text.includes("은퇴")) return "고령화 시대 의료비·생활비 급증 → 종신보험·간병보험 추가 검토 및 은퇴 설계 상담 권장";
+
+    // 암·질병
+    if (text.includes("암") || text.includes("질병") || text.includes("의료")) return "의료비 부담 증가 → 현재 실손·암보험 보장 범위 점검 및 부족한 보장 추가 가입 검토";
+
+    // 경제 일반
+    if (text.includes("물가") || text.includes("인플레")) return "물가 상승은 보험금 실질 가치 하락으로 이어짐 → 보장금액 상향 조정 또는 물가연동형 보험 검토 필요";
+
+    // 기업·취업
+    if (text.includes("퇴직") || text.includes("실업")) return "소득 단절 리스크 대비 → 소득보상보험 또는 퇴직금 연금 전환 전략 상담 권장";
+
+    return "이 뉴스와 내 보험의 연관성, 설계사와 함께 점검해보세요";
   }
 
   function stripHtml(html) {
@@ -229,15 +273,34 @@
         </div>
         {open && (
           <div style={{ padding:"0 16px 18px", borderTop:"1px dashed #C8DCF0", animation:"fadeIn 0.22s ease" }}>
-            <p style={{ fontSize:14, color:"#2A3D66", lineHeight:1.75, margin:"14px 0 12px" }}>{article.summary || "기사 내용을 불러오는 중입니다."}</p>
-            <div style={{ background:"#E6F0FC", borderLeft:"4px solid #004A96", borderRadius:"0 10px 10px 0", padding:"10px 14px", marginBottom:4 }}>
-              <span style={{ fontSize:11, fontWeight:800, color:"#004A96", marginRight:6 }}>💡 내 보험에 미치는 영향</span>
-              <span style={{ fontSize:13, color:"#1A3A70", fontWeight:600 }}>{article.insight}</span>
+
+            {/* ① 뉴스 요약 */}
+            <div style={{ marginTop:14, marginBottom:12 }}>
+              <p style={{ fontSize:11, fontWeight:800, color:"#7A9ABB", letterSpacing:1, marginBottom:6 }}>📋 뉴스 요약</p>
+              <p style={{ fontSize:14, color:"#2A3D66", lineHeight:1.8, margin:0 }}>
+                {article.summary || "기사 내용을 불러오는 중입니다."}
+              </p>
+              {article.link && article.link !== "#" && (
+                <a href={article.link} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{ display:"inline-block", fontSize:12, color:"#5C7A9B", fontWeight:700, marginTop:6, textDecoration:"underline" }}>📎 원문 전체 보기</a>
+              )}
             </div>
-            {article.link && article.link !== "#" && (
-              <a href={article.link} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{ display:"inline-block", fontSize:12, color:"#004A96", fontWeight:700, marginBottom:4, textDecoration:"underline" }}>📎 원문 보기</a>
-            )}
-            <AskButton phone={phone} kakaoUrl={kakaoUrl} />
+
+            {/* ② 내 보험에 미치는 영향 */}
+            <div style={{ background:"linear-gradient(135deg,#E6F0FC,#F0F7FF)", borderLeft:"4px solid #004A96", borderRadius:"0 12px 12px 0", padding:"12px 14px", marginBottom:12 }}>
+              <p style={{ fontSize:11, fontWeight:800, color:"#004A96", marginBottom:6, letterSpacing:0.5 }}>💡 내 보험에 미치는 영향</p>
+              <p style={{ fontSize:13, color:"#1A3A70", fontWeight:600, lineHeight:1.7, margin:0 }}>{article.insight}</p>
+            </div>
+
+            {/* ③ 설계사와 상담하기 */}
+            <div style={{ background:"linear-gradient(135deg,#FFF8E6,#FFFDF2)", border:"1.5px solid #F0D98A", borderRadius:12, padding:"14px 16px", marginBottom:12 }}>
+              <p style={{ fontSize:12, fontWeight:800, color:"#8B6A00", marginBottom:4 }}>🤝 더 궁금하신가요?</p>
+              <p style={{ fontSize:13, color:"#6B5200", lineHeight:1.6, margin:"0 0 12px" }}>이 뉴스가 나의 보험 계약에 구체적으로 어떤 영향을 주는지, 주진명 컨설턴트에게 직접 물어보세요!</p>
+              <div style={{ display:"flex", gap:8 }}>
+                <a href={"tel:"+phone.replace(/^tel:/,"")} onClick={e=>e.stopPropagation()} style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", gap:5, padding:"11px 6px", background:"#004A96", color:"#fff", borderRadius:10, fontSize:13, fontWeight:800, textDecoration:"none" }}>📞 전화 상담</a>
+                <a href={kakaoUrl} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{ flex:1.6, display:"flex", alignItems:"center", justifyContent:"center", gap:6, padding:"11px 8px", background:"#FAE100", color:"#381E00", borderRadius:10, fontSize:13, fontWeight:900, textDecoration:"none" }}>💬 설계사와 상담하기</a>
+              </div>
+            </div>
+
           </div>
         )}
       </div>
@@ -640,8 +703,6 @@
   // ── 메인 앱 ──────────────────────────────────────────
   function App() {
     const [tab, setTab] = useState("news");
-    const [phone, setPhone] = useState(()=>lsGet("phone","tel:010-0000-0000"));
-    const [kakaoUrl, setKakaoUrl] = useState(()=>lsGet("kakaoUrl","https://open.kakao.com/o/sEGyTGti"));
     const [adminUnlocked, setAdminUnlocked] = useState(false);
     const [showLock, setShowLock] = useState(false);
 
@@ -662,16 +723,12 @@
     return (
       <div style={{ maxWidth:480, margin:"0 auto", minHeight:"100vh", background:"#EBF2FC" }}>
         {showLock && <LockScreen onUnlock={handleUnlock} />}
-
-        {/* 탭 바 - 고객에게는 뉴스 탭만 보임 */}
         <div style={{ position:"sticky", top:0, zIndex:100, background:"#001240", display:"flex", borderBottom:"1px solid rgba(255,255,255,0.08)" }}>
           <button onClick={()=>handleTabClick("news")} style={{ flex:1, padding:"14px 0", border:"none", cursor:"pointer", background:"none", color:tab==="news"?"#C8A55A":"rgba(255,255,255,0.45)", fontSize:14, fontWeight:900, borderBottom:tab==="news"?"3px solid #C8A55A":"3px solid transparent", transition:"all 0.2s" }}>📰 뉴스</button>
-          {/* 관리 탭 - 아주 작게 숨김 처리 */}
           <button onClick={()=>handleTabClick("admin")} style={{ width:44, padding:"14px 0", border:"none", cursor:"pointer", background:"none", color:tab==="admin"?"#C8A55A":"rgba(255,255,255,0.15)", fontSize:11, fontWeight:700, borderBottom:tab==="admin"?"3px solid #C8A55A":"3px solid transparent", transition:"all 0.2s" }}>⚙️</button>
         </div>
-
-        {tab==="news"  && <NewsTab phone={phone} kakaoUrl={kakaoUrl}/>}
-        {tab==="admin" && adminUnlocked && <AdminTab phone={phone} setPhone={setPhone} kakaoUrl={kakaoUrl} setKakaoUrl={setKakaoUrl}/>}
+        {tab==="news"  && <NewsTab phone={CONSULTANT_PHONE} kakaoUrl={CONSULTANT_KAKAO}/>}
+        {tab==="admin" && adminUnlocked && <AdminTab phone={CONSULTANT_PHONE} kakaoUrl={CONSULTANT_KAKAO}/>}
       </div>
     );
   }
