@@ -1,0 +1,22 @@
+{
+  "name": "주진명의 데일리 브리핑",
+  "short_name": "주진명 브리핑",
+  "description": "삼성생명 주진명 컨설턴트의 보험·금융 뉴스 앱",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#EBF2FC",
+  "theme_color": "#001F5C",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://via.placeholder.com/192x192/001F5C/C8A55A?text=JJM",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://via.placeholder.com/512x512/001F5C/C8A55A?text=JJM",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
