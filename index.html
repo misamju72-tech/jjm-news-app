@@ -16,6 +16,19 @@
   <!-- Firebase -->
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <!-- PWA 설치 프롬프트 캡처 -->
+  <script>
+    let deferredPrompt = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      window.dispatchEvent(new Event('pwa-installable'));
+    });
+    window.addEventListener('appinstalled', () => {
+      deferredPrompt = null;
+      window.dispatchEvent(new Event('pwa-installed'));
+    });
+  </script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100%; background: #EBF2FC; font-family: 'Noto Sans KR', sans-serif; }
@@ -593,15 +606,101 @@
     );
   }
 
-  // ══════════════════════════════════════════════════════
-  // 메인 앱
-  // ══════════════════════════════════════════════════════
+  // ── PWA 설치 배너 ─────────────────────────────────────
+  function InstallBanner({ onDismiss }) {
+    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    const isAndroid = /android/i.test(navigator.userAgent);
+
+    const handleInstall = async () => {
+      if (window.deferredPrompt) {
+        window.deferredPrompt.prompt();
+        const { outcome } = await window.deferredPrompt.userChoice;
+        if (outcome === 'accepted') {
+          window.deferredPrompt = null;
+          onDismiss();
+        }
+      }
+    };
+
+    return (
+      <div style={{
+        position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)",
+        width: "100%", maxWidth: 480, zIndex: 200,
+        padding: "0 12px 12px", animation: "slideUp 0.4s ease",
+      }}>
+        <div style={{
+          background: "linear-gradient(135deg, #001F5C, #003D8F)",
+          borderRadius: 20, padding: "18px 18px 16px",
+          boxShadow: "0 -4px 30px rgba(0,31,92,0.4)",
+          border: "1px solid rgba(200,165,90,0.3)",
+        }}>
+          <button onClick={onDismiss} style={{
+            position: "absolute", top: 12, right: 20,
+            background: "none", border: "none", color: "rgba(255,255,255,0.4)",
+            fontSize: 20, cursor: "pointer",
+          }}>×</button>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 14 }}>
+            <div style={{
+              width: 52, height: 52, borderRadius: 14, flexShrink: 0,
+              background: "linear-gradient(135deg, #C8A55A, #E2C876)",
+              display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26,
+            }}>📱</div>
+            <div>
+              <p style={{ fontSize: 15, fontWeight: 900, color: "#fff", margin: "0 0 3px" }}>앱으로 설치하기</p>
+              <p style={{ fontSize: 12, color: "rgba(255,255,255,0.6)", margin: 0 }}>홈화면에 추가하면 매일 편하게 확인!</p>
+            </div>
+          </div>
+
+          {isIOS ? (
+            <div style={{ background: "rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px 14px" }}>
+              <p style={{ fontSize: 13, color: "#C8A55A", fontWeight: 800, marginBottom: 6 }}>📲 iPhone 설치 방법</p>
+              <p style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", lineHeight: 1.8, margin: 0 }}>
+                1. 하단 공유 버튼 <span style={{ background: "rgba(255,255,255,0.2)", padding: "1px 6px", borderRadius: 4 }}>□↑</span> 탭<br/>
+                2. <strong style={{ color: "#fff" }}>"홈 화면에 추가"</strong> 선택<br/>
+                3. 우측 상단 <strong style={{ color: "#fff" }}>"추가"</strong> 탭
+              </p>
+            </div>
+          ) : (
+            <button onClick={handleInstall} style={{
+              width: "100%", padding: "14px 0",
+              background: "linear-gradient(135deg, #C8A55A, #E2C876)",
+              border: "none", borderRadius: 14,
+              fontSize: 15, fontWeight: 900, color: "#001F5C",
+              cursor: "pointer",
+              boxShadow: "0 4px 16px rgba(200,165,90,0.4)",
+            }}>
+              📲 지금 바로 앱 설치하기
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── 메인 앱 ──────────────────────────────────────────
   function App() {
     const [tab, setTab] = useState("news");
     const [adminUnlocked, setAdminUnlocked] = useState(false);
     const [showLock, setShowLock] = useState(false);
     const [customer, setCustomer] = useState(null);
     const [checkingCustomer, setCheckingCustomer] = useState(true);
+    const [showInstall, setShowInstall] = useState(false);
+    const [installDismissed, setInstallDismissed] = useState(false);
+
+    useEffect(()=>{
+      // PWA 설치 가능할 때 배너 표시 (3초 후)
+      const timer = setTimeout(() => {
+        if (!installDismissed && !window.matchMedia('(display-mode: standalone)').matches) {
+          setShowInstall(true);
+        }
+      }, 3000);
+      window.addEventListener('pwa-installable', () => {
+        if (!installDismissed) setShowInstall(true);
+      });
+      window.addEventListener('pwa-installed', () => setShowInstall(false));
+      return () => clearTimeout(timer);
+    }, [installDismissed]);
 
     useEffect(()=>{
       const id = localStorage.getItem("jjm_customer_id");
@@ -621,8 +720,15 @@
     return (
       <div style={{ maxWidth:480, margin:"0 auto", minHeight:"100vh", background:"#EBF2FC" }}>
         {showLock && <LockScreen onUnlock={()=>{ setAdminUnlocked(true); setShowLock(false); setTab("admin"); }} />}
+
+        {/* 앱 설치 배너 */}
+        {showInstall && !installDismissed && (
+          <InstallBanner onDismiss={()=>{ setShowInstall(false); setInstallDismissed(true); }} />
+        )}
+
         <div style={{ position:"sticky", top:0, zIndex:100, background:"#001240", display:"flex", borderBottom:"1px solid rgba(255,255,255,0.08)" }}>
           <button onClick={()=>setTab("news")} style={{ flex:1, padding:"14px 0", border:"none", cursor:"pointer", background:"none", color:tab==="news"?"#C8A55A":"rgba(255,255,255,0.45)", fontSize:14, fontWeight:900, borderBottom:tab==="news"?"3px solid #C8A55A":"3px solid transparent", transition:"all 0.2s" }}>📰 뉴스</button>
+          <button onClick={()=>setShowInstall(true)} style={{ width:44, padding:"14px 0", border:"none", cursor:"pointer", background:"none", color:"rgba(255,255,255,0.3)", fontSize:14 }} title="앱 설치">📲</button>
           <button onClick={()=>{ if(!adminUnlocked) setShowLock(true); else setTab("admin"); }} style={{ width:44, padding:"14px 0", border:"none", cursor:"pointer", background:"none", color:tab==="admin"?"#C8A55A":"rgba(255,255,255,0.15)", fontSize:11, fontWeight:700, borderBottom:tab==="admin"?"3px solid #C8A55A":"3px solid transparent" }}>⚙️</button>
         </div>
         {tab==="news" && <NewsTab customerName={customer.name}/>}
